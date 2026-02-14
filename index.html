@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Snake (Mobile)</title>
+  <style>
+    :root{--bg:#0b0b0c;--panel:#101012;--border:#25252a;--text:#e7e7ea;--muted:#9aa0a6;--accent:#7aa2f7;}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
+    .wrap{height:100%;display:flex;flex-direction:column;}
+    header{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0));}
+    .stats{display:flex;gap:12px;align-items:baseline;}
+    .stats span{color:var(--muted);font-size:13px;}
+    .stats b{color:var(--text);}
+    button{background:var(--panel);color:var(--text);border:1px solid var(--border);padding:8px 10px;border-radius:10px;}
+    main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:12px;}
+    canvas{background:#070708;border:1px solid var(--border);border-radius:14px;touch-action:none;}
+    .hint{color:var(--muted);font-size:13px;text-align:center;max-width:520px;line-height:1.35;}
+    .controls{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(3,64px);gap:10px;user-select:none;-webkit-user-select:none;}
+    .pad{display:flex;align-items:center;justify-content:center;background:var(--panel);border:1px solid var(--border);border-radius:14px;font-size:18px;}
+    .pad:active{border-color:rgba(122,162,247,0.7);}
+    .row{display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:center;}
+    .pill{padding:6px 10px;border-radius:999px;border:1px solid var(--border);color:var(--muted);font-size:12px;}
+    footer{padding:10px 12px;color:var(--muted);font-size:12px;text-align:center;border-top:1px solid var(--border);}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="stats">
+        <span>Score: <b id="score">0</b></span>
+        <span>Best: <b id="best">0</b></span>
+        <span class="pill" id="status">Tap Start</span>
+      </div>
+      <div class="row">
+        <button id="startBtn">Start</button>
+        <button id="pauseBtn">Pause</button>
+      </div>
+    </header>
+
+    <main>
+      <canvas id="c" width="360" height="360"></canvas>
+      <div class="hint">
+        Swipe on the board to steer. Or use the D-pad. The snake wraps around the edges.
+      </div>
+      <div class="controls" aria-label="D-pad">
+        <div></div><div class="pad" data-dir="up">▲</div><div></div>
+        <div class="pad" data-dir="left">◀</div><div class="pad" data-dir="pause">⏸</div><div class="pad" data-dir="right">▶</div>
+        <div></div><div class="pad" data-dir="down">▼</div><div></div>
+      </div>
+      <div class="hint">Tip: if it feels too fast/slow, tell me and I’ll tune it.</div>
+    </main>
+
+    <footer>
+      Snake Mobile MVP — localStorage best score.
+    </footer>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const statusEl = document.getElementById('status');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+
+  const GRID = 18;
+  const CELL = 20; // will be scaled responsively
+
+  let best = Number(localStorage.getItem('snake.best') || 0);
+  bestEl.textContent = String(best);
+
+  // responsive canvas sizing
+  function resize() {
+    const max = Math.min(window.innerWidth - 24, 420);
+    const size = Math.floor(max / GRID) * GRID;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function randCell() {
+    return { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
+  }
+
+  let snake, dir, nextDir, food, running, paused, tickMs, timer;
+
+  function reset() {
+    snake = [{x: 8, y: 9}, {x: 7, y: 9}, {x: 6, y: 9}];
+    dir = {x: 1, y: 0};
+    nextDir = dir;
+    food = randCell();
+    running = false;
+    paused = false;
+    tickMs = 110;
+    scoreEl.textContent = '0';
+    statusEl.textContent = 'Tap Start';
+  }
+
+  function setStatus(t) { statusEl.textContent = t; }
+
+  function setDir(d) {
+    // prevent reversing
+    if (d.x === -dir.x && d.y === -dir.y) return;
+    nextDir = d;
+  }
+
+  function step() {
+    if (!running || paused) return;
+    dir = nextDir;
+
+    const head = snake[0];
+    let nx = (head.x + dir.x + GRID) % GRID;
+    let ny = (head.y + dir.y + GRID) % GRID;
+
+    // collision with self
+    for (let i = 0; i < snake.length; i++) {
+      if (snake[i].x === nx && snake[i].y === ny) {
+        gameOver();
+        return;
+      }
+    }
+
+    snake.unshift({x: nx, y: ny});
+
+    if (nx === food.x && ny === food.y) {
+      const s = Number(scoreEl.textContent) + 1;
+      scoreEl.textContent = String(s);
+      if (s > best) {
+        best = s;
+        localStorage.setItem('snake.best', String(best));
+        bestEl.textContent = String(best);
+      }
+      // place food not on snake
+      let tries = 0;
+      do {
+        food = randCell();
+        tries++;
+      } while (snake.some(p => p.x === food.x && p.y === food.y) && tries < 200);
+      // tiny speed-up
+      tickMs = Math.max(70, tickMs - 1);
+      restartTimer();
+    } else {
+      snake.pop();
+    }
+
+    draw();
+  }
+
+  function restartTimer() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(step, tickMs);
+  }
+
+  function start() {
+    if (!running) {
+      running = true;
+      paused = false;
+      setStatus('Playing');
+      draw();
+      restartTimer();
+    } else {
+      paused = false;
+      setStatus('Playing');
+    }
+  }
+
+  function pause() {
+    if (!running) return;
+    paused = !paused;
+    setStatus(paused ? 'Paused' : 'Playing');
+  }
+
+  function gameOver() {
+    running = false;
+    paused = false;
+    if (timer) clearInterval(timer);
+    setStatus('Game Over — Tap Start');
+  }
+
+  function draw() {
+    const w = GRID * CELL;
+    const h = GRID * CELL;
+    canvas.width = w;
+    canvas.height = h;
+
+    // background grid
+    ctx.fillStyle = '#070708';
+    ctx.fillRect(0,0,w,h);
+
+    // food
+    ctx.fillStyle = '#7aa2f7';
+    ctx.fillRect(food.x*CELL+4, food.y*CELL+4, CELL-8, CELL-8);
+
+    // snake
+    for (let i = 0; i < snake.length; i++) {
+      const p = snake[i];
+      const isHead = i === 0;
+      ctx.fillStyle = isHead ? '#e7e7ea' : 'rgba(231,231,234,0.85)';
+      ctx.fillRect(p.x*CELL+2, p.y*CELL+2, CELL-4, CELL-4);
+    }
+
+    if (!running) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(0,0,w,h);
+      ctx.fillStyle = '#e7e7ea';
+      ctx.font = 'bold 18px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Tap Start', w/2, h/2 - 6);
+      ctx.fillStyle = 'rgba(231,231,234,0.75)';
+      ctx.font = '14px system-ui';
+      ctx.fillText('Swipe to steer', w/2, h/2 + 16);
+    }
+  }
+
+  // swipe controls
+  let touchStart = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    touchStart = {x: e.clientX, y: e.clientY};
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!touchStart) return;
+    const dx = e.clientX - touchStart.x;
+    const dy = e.clientY - touchStart.y;
+    touchStart = null;
+
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    if (Math.max(adx, ady) < 12) return; // ignore taps
+
+    if (adx > ady) {
+      setDir(dx > 0 ? {x:1,y:0} : {x:-1,y:0});
+    } else {
+      setDir(dy > 0 ? {x:0,y:1} : {x:0,y:-1});
+    }
+  });
+
+  // keyboard
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'arrowup' || k === 'w') setDir({x:0,y:-1});
+    if (k === 'arrowdown' || k === 's') setDir({x:0,y:1});
+    if (k === 'arrowleft' || k === 'a') setDir({x:-1,y:0});
+    if (k === 'arrowright' || k === 'd') setDir({x:1,y:0});
+    if (k === ' ' || k === 'p') pause();
+  });
+
+  // dpad
+  document.querySelectorAll('.pad').forEach(el => {
+    el.addEventListener('click', () => {
+      const dirName = el.getAttribute('data-dir');
+      if (dirName === 'pause') return pause();
+      if (dirName === 'up') setDir({x:0,y:-1});
+      if (dirName === 'down') setDir({x:0,y:1});
+      if (dirName === 'left') setDir({x:-1,y:0});
+      if (dirName === 'right') setDir({x:1,y:0});
+    });
+  });
+
+  startBtn.addEventListener('click', () => start());
+  pauseBtn.addEventListener('click', () => pause());
+
+  reset();
+  draw();
+})();
+</script>
+</body>
+</html>
